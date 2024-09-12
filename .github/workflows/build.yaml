@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ ubuntu-20.04, ubuntu-22.04, ubuntu-24.04 ]
+        compiler: [clang, gcc]
+        installdeps: ['sudo apt install -y ninja-build cmake']
+        include:
+        - os: macos-latest
+          installdeps: 'brew install cmake'
+          compiler: clang
+    runs-on: ${{matrix.os}}
+    name: "${{matrix.os}} - ${{matrix.compiler}}"
+
+    env:
+      CC: ${{ matrix.compiler }}
+      LSAN_OPTIONS: verbosity=1:log_threads=1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: ${{matrix.installdeps }}
+
+      - name: Run cmake
+        run: cmake -B lwipovpn-build
+
+      - name: Build with cmake
+        run: cmake --build lwipovpn-build
