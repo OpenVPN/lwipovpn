@@ -27,17 +27,13 @@
  *
  * This file is part of the lwIP TCP/IP stack.
  *
- * Author: Adam Dunkels <adam@sics.se>
- *
  */
 
 #include <fcntl.h>
-#include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
-#include <sys/time.h>
 #include <stdbool.h>
+
 
 #include "lwip/opt.h"
 
@@ -47,7 +43,6 @@
 #include "lwip/snmp.h"
 #include "lwip/pbuf.h"
 #include "lwip/sys.h"
-#include "lwip/timeouts.h"
 #include "netif/etharp.h"
 #include "lwip/ethip6.h"
 

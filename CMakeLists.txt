@@ -44,9 +44,26 @@ set(LWIP_OVPN_INCLUDE_DIRS
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# Have a warning about missing FreeBSD support until the PR get merged and we update our submodule
-if (${CMAKE_SYSTEM_NAME} STREQUAL "FreeBSD")
-    message(INFO "Note for FreeBSD support manually apply/checkout https://github.com/lwip-tcpip/lwip/pull/46 to the lwip submodule")
+# add a variant of lwipcontribportunix that does not include the probelmatic sio.c and to avoid pulling in unneeded sources
+add_library(lwipcontribunixsys EXCLUDE_FROM_ALL ${lwipcontribportunix_SRCS})
+target_include_directories(lwipcontribunixsys PRIVATE ${LWIP_INCLUDE_DIRS} ${LWIP_MBEDTLS_INCLUDE_DIRS})
+target_compile_options(lwipcontribunixsys PRIVATE ${LWIP_COMPILER_FLAGS})
+target_compile_definitions(lwipcontribunixsys PRIVATE ${LWIP_DEFINITIONS} ${LWIP_MBEDTLS_DEFINITIONS})
+target_link_libraries(lwipcontribunixsys PUBLIC ${LWIP_MBEDTLS_LINK_LIBRARIES})
+target_link_libraries(lwipcontribunixsys PUBLIC Threads::Threads)
+
+# Avoid format specifies type 'unsigned long' but the argument has type 'clock_t' (aka 'int') warning
+target_compile_options(lwipcontribunixsys PRIVATE -Wno-format)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_library(LIBUTIL util)
+    find_library(LIBRT rt)
+    target_link_libraries(lwipcontribunixsys PUBLIC ${LIBUTIL} ${LIBPTHREAD} ${LIBRT})
+endif()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    find_library(LIBUTIL util)
+    target_link_libraries(lwipcontribunixsys PUBLIC ${LIBUTIL})
 endif()
 
 
@@ -72,5 +89,11 @@ target_compile_definitions(lwipovpn PRIVATE ${LWIP_DEFINITIONS} ${LWIP_MBEDTLS_D
 if (NOT "${HAVE_ARC4RANDOM}")
     target_compile_definitions(lwipovpn PRIVATE -DARC4RANDOM_MISSING)
 endif()
-target_link_libraries(lwipovpn PRIVATE ${LWIP_SANITIZER_LIBS} lwipcontribexamples lwipcontribapps lwipcontribaddons lwipallapps lwipcontribportunix lwipcore lwipmbedtls)
-target_link_libraries(lwipovpn PRIVATE Threads::Threads)
+target_link_libraries(lwipovpn PRIVATE ${LWIP_SANITIZER_LIBS} lwipcontribexamples lwipcontribapps lwipcontribaddons lwipallapps lwipcontribunixsys lwipcore lwipmbedtls)
+
+
+# Ignore htons redefined error
+if (CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+    target_compile_options(lwipcontribunixsys PRIVATE -Wno-macro-redefined)
+    target_compile_options(lwipovpn PRIVATE -Wno-macro-redefined)
+endif ()

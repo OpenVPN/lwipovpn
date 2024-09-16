@@ -33,6 +33,8 @@
 #ifndef LWIP_UNIXAF_H
 #define LWIP_UNIXAF_H
 
+#include <stdbool.h>
+
 #include "lwip/netif.h"
 
 #ifdef __cplusplus
