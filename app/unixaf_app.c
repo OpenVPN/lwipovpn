@@ -34,7 +34,6 @@
 
 /* C runtime includes */
 #include <stdio.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
@@ -44,26 +43,17 @@
 #include "lwip/opt.h"
 
 #include "lwip/sys.h"
-#include "lwip/timeouts.h"
 #include "lwip/debug.h"
-#include "lwip/stats.h"
-#include "lwip/init.h"
 #include "lwip/tcpip.h"
 #include "lwip/netif.h"
-#include "lwip/api.h"
 
-#include "lwip/tcp.h"
-#include "lwip/udp.h"
-#include "lwip/dns.h"
 #include "lwip/dhcp.h"
-#include "lwip/autoip.h"
 
 /* lwIP netif includes */
 #include "lwip/etharp.h"
 #include "netif/ethernet.h"
 
 /* applications includes */
-#include "lwip/apps/netbiosns.h"
 #include "lwip/apps/httpd.h"
 #include "apps/httpserver/httpserver-netconn.h"
 #include "apps/netio/netio.h"
@@ -91,8 +81,6 @@
 #include "lwip/sockets.h"
 
 #include "unixaf.h"
-
-#include "netif/ppp/ppp_opts.h"
 
 /* include the port-dependent configuration */
 #include "afunix_config.h"

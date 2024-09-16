@@ -52,6 +52,11 @@ target_compile_definitions(lwipcontribunixsys PRIVATE ${LWIP_DEFINITIONS} ${LWIP
 target_link_libraries(lwipcontribunixsys PUBLIC ${LWIP_MBEDTLS_LINK_LIBRARIES})
 target_link_libraries(lwipcontribunixsys PUBLIC Threads::Threads)
 
+
+if (CMAKE_SYSTEM_NAME STREQUAL "OpenBSD" OR CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    target_compile_definitions(lwipcontribunixsys PUBLIC -DLWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS)
+endif ()
+
 # Avoid format specifies type 'unsigned long' but the argument has type 'clock_t' (aka 'int') warning
 target_compile_options(lwipcontribunixsys PRIVATE -Wno-format)
 
@@ -91,9 +96,3 @@ if (NOT "${HAVE_ARC4RANDOM}")
 endif()
 target_link_libraries(lwipovpn PRIVATE ${LWIP_SANITIZER_LIBS} lwipcontribexamples lwipcontribapps lwipcontribaddons lwipallapps lwipcontribunixsys lwipcore lwipmbedtls)
 
-
-# Ignore htons redefined error
-if (CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
-    target_compile_options(lwipcontribunixsys PRIVATE -Wno-macro-redefined)
-    target_compile_options(lwipovpn PRIVATE -Wno-macro-redefined)
-endif ()
