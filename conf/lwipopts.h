@@ -60,7 +60,7 @@
 
 #define LWIP_HAVE_LOOPIF           1
 #define LWIP_NETIF_LOOPBACK        1
-#define LWIP_LOOPBACK_MAX_PBUFS    20
+#define LWIP_LOOPBACK_MAX_PBUFS    64
 
 #define TCP_LISTEN_BACKLOG         1
 
@@ -118,7 +118,7 @@
 
 /* MEM_SIZE: the size of the heap memory. If the application will send
 a lot of data that needs to be copied, this should be set high. */
-#define MEM_SIZE               50240
+#define MEM_SIZE               502400
 
 /* MEMP_NUM_PBUF: the number of memp struct pbufs. If the application
    sends a lot of data out of ROM (or other static memory), this
