@@ -47,6 +47,19 @@ Limitations
  - LWIP does not have a netmask for IPv6 addresses. Addresses are always assumed to be /64
  - Routes are ignored and lwipovpn assumes everything to be reachable via OpenVPN
 
+
+Git checkout
+------------
+Be sure that lwipovpn has been checked with submodule recursion enabled like this:
+
+    git clone --recursive https://github.com/openvpn/lwipovpn
+
+or by enabling them in already checkout clone by using the git submodule commands:
+   
+    cd lwipovpn
+    git submodule init
+    git submodule update
+
 Building
 --------
 This project uses the CMake build system.
