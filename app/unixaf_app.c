@@ -479,7 +479,7 @@ main_loop(void) {
 #endif
 
   /* MAIN LOOP for driver update (and timers if NO_SYS) */
-  while (!LWIP_EXAMPLE_APP_ABORT()) {
+  while (true) {
     unixafif_poll(netif_default);
 
 #if ENABLE_LOOPBACK && !LWIP_NETIF_LOOPBACK_MULTITHREADING
