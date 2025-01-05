@@ -34,7 +34,6 @@
 #include <string.h>
 #include <stdbool.h>
 
-
 #include "lwip/opt.h"
 
 #include "lwip/debug.h"
@@ -48,8 +47,8 @@
 
 #include "unixaf.h"
 #include "unixaf_host.h"
+#include "unixaf_pcap.h"
 #include "lwip/sockets.h"
-
 
 /* Define those to better describe your network interface. */
 #define IFNAME0 'a'
@@ -62,6 +61,7 @@
 struct unixafif {
   /* Add whatever per-interface state that is needed here. */
   int fd;
+  struct unixafif_pcap pcap;
 };
 
 /* Forward declarations. */
@@ -182,6 +182,7 @@ static void set_tun_fd(struct netif *netif)
   }
 }
 
+
 static void
 low_level_init(struct netif *netif) {
   const char *dev_type;
@@ -242,6 +243,11 @@ low_level_output(struct netif *netif, struct pbuf *p) {
     return ERR_IF;
   }
 
+  if (unixaf->pcap.pcap)
+  {
+    unixaf_pcap_write_packet(&unixaf->pcap, p->tot_len, buf);
+  }
+
   /* signal that packet should be sent(); */
   size_t written = host_send(unixaf->fd, buf, p->tot_len, 0);
   if (written < p->tot_len) {
@@ -277,6 +283,7 @@ low_level_input(struct netif *netif) {
   /* Obtain the size of the packet and put it into the "len"
      variable. */
   readlen = host_recv(afif->fd, buf, sizeof(buf), 0);
+
   if (readlen < 0) {
     char errmsg[512];
     snprintf(errmsg, sizeof(errmsg), "recv of fd %d returned %zd:",
@@ -291,6 +298,12 @@ low_level_input(struct netif *netif) {
   len = (u16_t) readlen;
 
   MIB2_STATS_NETIF_ADD(netif, ifinoctets, len);
+
+  if (afif->pcap.pcap)
+  {
+    unixaf_pcap_write_packet(&afif->pcap, len, buf);
+  }
+
 
   /* We allocate a pbuf chain of pbufs from the pool. */
   p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
@@ -364,6 +377,11 @@ unixafif_init(struct netif *netif) {
   netif->linkoutput = low_level_output;
 
   low_level_init(netif);
+
+  bool tap = netif->flags & NETIF_FLAG_ETHARP;
+
+  struct unixafif *uafif = (struct unixafif *) netif->state;
+  unixaf_pcap_init(&uafif->pcap, tap);
 
   return ERR_OK;
 }

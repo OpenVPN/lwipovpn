@@ -22,6 +22,7 @@ Features
  - IPv6 Support
  - automatic configuration of IPv4 and IPv6 addresses
  - tap or tun emulation
+ - write pcap file 
 
 
 Enabled apps
@@ -35,7 +36,16 @@ can be enabled/implemented to allow even more testing.
  - shell (a simple shell that can be used with telnet to make some network diagnostics)
  - tcp echo (port 7)
  - udp echo (port 7)
- - 
+
+
+PCAP File Support
+-----------------
+If the environment variable `LWIP_PCAP_FILE` is e.g. by setting it from OpenVPN via 
+
+    setenv LWIP_PCAP_FILE /tmp/lwip.pcap
+
+then lwipovpn will write all packets send/received into this pcap file. If the file 
+already exists, the new packets will be appended to it.
 
 Limitations
 -----------

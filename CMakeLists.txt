@@ -78,9 +78,13 @@ add_executable(lwipovpn
         netif/unixaf.h
         netif/unixaf_host.c
         netif/unixaf_host.h
+        netif/unixaf_pcap.c
+        netif/unixaf_pcap.h
 )
 
-# C doesn't seem to have a good easy to use random function. Use arc4random if available otherwise rand
+find_library(PCAP_LIBRARY NAMES pcap)
+
+        # C doesn't seem to have a good easy to use random function. Use arc4random if available otherwise rand
 check_symbol_exists(arc4random stdlib.h HAVE_ARC4RANDOM)
 
 # we do not care about C90 compatibility in lwipovpn since OpenVPN itself requires C11
@@ -91,6 +95,7 @@ LIST(REMOVE_ITEM LWIP_COMPILER_FLAGS_OVPN -Waggregate-return)
 target_include_directories(lwipovpn PRIVATE ${LWIP_INCLUDE_DIRS} ${LWIP_OVPN_INCLUDE_DIRS})
 target_compile_options(lwipovpn PRIVATE ${LWIP_COMPILER_FLAGS_OVPN})
 target_compile_definitions(lwipovpn PRIVATE ${LWIP_DEFINITIONS} ${LWIP_MBEDTLS_DEFINITIONS})
+target_link_libraries(lwipovpn PRIVATE ${PCAP_LIBRARY})
 if (NOT "${HAVE_ARC4RANDOM}")
     target_compile_definitions(lwipovpn PRIVATE -DARC4RANDOM_MISSING)
 endif()
