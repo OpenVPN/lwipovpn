@@ -58,11 +58,13 @@
 #define AFUNIX_DEBUG LWIP_DBG_OFF
 #endif
 
-struct unixafif {
+struct unixafif_global {
   /* Add whatever per-interface state that is needed here. */
   int fd;
   struct unixafif_pcap pcap;
 };
+
+struct unixafif_global g_unixaf = { 0 };
 
 /* Forward declarations. */
 static void unixafif_input(struct netif *netif);
@@ -120,15 +122,47 @@ static uint8_t get_random_byte(void)
   return (uint8_t) (rand());
 #endif
 }
+
+
+const char*
+getenv_indexed(const char *name, uint8_t num)
+{
+    char buf[1024];
+    const char *env_name = getenv_indexed_name(buf, sizeof(buf) , name, num);
+    return getenv(env_name);
+}
+
+const char*
+getenv_indexed_name(char *buf, size_t buflen, const char *name, uint8_t num)
+{
+
+  if (num == 1 || num == 0)
+    return name;
+  else
+  {
+    snprintf(buf, buflen, "OPENVPN_%s_%d", name, num);
+    return buf;
+  }
+}
+
+
+const char*
+getenv_netif_idx(const char *name, struct netif *netif)
+{
+  return getenv_indexed(name, netif->num);
+}
+
+
+
 static void set_netif_mac(struct netif *netif) {
-  const char *lladdr_str = getenv("TUNTAP_LLADDR");
+  const char *lladdr_str = getenv_netif_idx("TUNTAP_LLADDR", netif);
   if (!lladdr_str) {
     /* (We just fake an address...).
     * This is a random locally administered address with a fixed
     * prefix to make easier to identify */
     netif->hwaddr[0] = 0x0e;
     netif->hwaddr[1] = 'o';
-    netif->hwaddr[2] = get_random_byte();
+    netif->hwaddr[2] = netif->num;
     netif->hwaddr[3] = get_random_byte();
     netif->hwaddr[4] = get_random_byte();
     netif->hwaddr[5] = get_random_byte();
@@ -136,7 +170,7 @@ static void set_netif_mac(struct netif *netif) {
     return;
   }
 
-  if (sscanf(lladdr_str, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
+  if (netif->num == 0 && sscanf(lladdr_str, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
 		   &netif->hwaddr[0], &netif->hwaddr[1], &netif->hwaddr[2],
 		   &netif->hwaddr[3], &netif->hwaddr[4], &netif->hwaddr[5])
 		   != 6)
@@ -148,18 +182,17 @@ static void set_netif_mac(struct netif *netif) {
   netif->hwaddr_len = 6;
 }
 
-static void set_tun_fd(struct netif *netif)
+static void set_tun_fd(void)
 {
  const char *unix_af_path = getenv("TUN_UNIXAF_PATH");
  const char *unix_af_fd_str = getenv("TUNTAP_SOCKET_FD");
- struct unixafif *uafif = (struct unixafif *) netif->state;
 
 
   if (unix_af_path) {
-    uafif->fd = open(unix_af_path, O_RDWR);
-    LWIP_DEBUGF(AFUNIX_DEBUG, ("unixafif_init: fd %d\n", uafif->fd));
-    if (uafif->fd <  0) {
-      fprintf(stderr, "tunixafif_init: cannot open %s: %s", unix_af_path,
+    g_unixaf.fd = open(unix_af_path, O_RDWR);
+    LWIP_DEBUGF(AFUNIX_DEBUG, ("set_tun_fd: fd %d\n", g_unixaf.fd));
+    if (g_unixaf.fd <  0) {
+      fprintf(stderr, "set_tun_fd: cannot open %s: %s", unix_af_path,
 	      strerror(errno));
       exit(1);
     }
@@ -172,11 +205,11 @@ static void set_tun_fd(struct netif *netif)
 		    "descriptor/socket path");
     exit(1);
   }
-  uafif->fd = atoi(unix_af_fd_str);
+  g_unixaf.fd = atoi(unix_af_fd_str);
 
-  LWIP_DEBUGF(AFUNIX_DEBUG, ("unixafif_init: fd %d\n", uafif->fd));
-  if (uafif->fd <= 0) {
-    fprintf(stderr, "tunixafif_init: cannot parse TUNTAP_SOCKET_FD (%s)",
+  LWIP_DEBUGF(AFUNIX_DEBUG, ("set_tun_fd: fd %d\n", g_unixaf.fd));
+  if (g_unixaf.fd <= 0) {
+    fprintf(stderr, "set_tun_fd: cannot parse TUNTAP_SOCKET_FD (%s)",
 	    unix_af_fd_str);
     exit(1);
   }
@@ -205,7 +238,6 @@ low_level_init(struct netif *netif) {
     exit(1);
   }
 
-  set_tun_fd(netif);
   set_netif_mtu(netif);
   netif_set_link_up(netif);
 
@@ -226,7 +258,6 @@ low_level_init(struct netif *netif) {
 
 static err_t
 low_level_output(struct netif *netif, struct pbuf *p) {
-  struct unixafif *unixaf = (struct unixafif *) netif->state;
   char buf[1518]; /* max packet size including VLAN excluding CRC */
 
   if (p->tot_len > sizeof(buf)) {
@@ -243,81 +274,49 @@ low_level_output(struct netif *netif, struct pbuf *p) {
     return ERR_IF;
   }
 
-  if (unixaf->pcap.pcap)
+  if (g_unixaf.pcap.pcap)
   {
-    unixaf_pcap_write_packet(&unixaf->pcap, p->tot_len, buf);
+    unixaf_pcap_write_packet(&g_unixaf.pcap, p->tot_len, buf);
   }
 
   /* signal that packet should be sent(); */
-  size_t written = host_send(unixaf->fd, buf, p->tot_len, 0);
+  size_t written = host_send(g_unixaf.fd, buf, p->tot_len, 0);
   if (written < p->tot_len) {
     MIB2_STATS_NETIF_INC(netif, ifoutdiscards);
 
     fprintf(stderr, "unixafif: fd %d send short (%zd of %d)",
-	     unixaf->fd, written, p->tot_len);
+	     g_unixaf.fd, written, p->tot_len);
     return ERR_IF;
   } else {
     LWIP_DEBUGF(AFUNIX_DEBUG, ("unixafif: fd %d send bytes to socket (%zd of %d)\n",
-	unixaf->fd, written, p->tot_len));
+	g_unixaf.fd, written, p->tot_len));
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, (u32_t) written);
     return ERR_OK;
   }
 }
-/*-----------------------------------------------------------------------------------*/
-/*
- * low_level_input():
- *
- * Should allocate a pbuf and transfer the bytes of the incoming
- * packet from the interface into the pbuf.
- *
- */
-/*-----------------------------------------------------------------------------------*/
-static struct pbuf *
-low_level_input(struct netif *netif) {
-  struct pbuf *p;
-  u16_t len;
-  ssize_t readlen;
-  char buf[1518]; /* max packet size including VLAN excluding CRC */
-  struct unixafif *afif = (struct unixafif *) netif->state;
 
+static ssize_t read_from_afunix_socket(int fd, char* buf, int buflen)
+{
   /* Obtain the size of the packet and put it into the "len"
      variable. */
-  readlen = host_recv(afif->fd, buf, sizeof(buf), 0);
+  ssize_t readlen = host_recv(fd, buf, buflen, 0);
 
   if (readlen < 0) {
     char errmsg[512];
     snprintf(errmsg, sizeof(errmsg), "recv of fd %d returned %zd:",
-	     afif->fd, readlen);
+	     fd, readlen);
     perror(errmsg);
-    MIB2_STATS_NETIF_INC(netif, ifindiscards);
-    return NULL;
-  } else {
-    LWIP_DEBUGF(AFUNIX_DEBUG, ("received %zd bytes from socket\n", readlen));
+    //MIB2_STATS_NETIF_INC(netif, ifindiscards);
   }
 
-  len = (u16_t) readlen;
-
-  MIB2_STATS_NETIF_ADD(netif, ifinoctets, len);
-
-  if (afif->pcap.pcap)
+  if (g_unixaf.pcap.pcap)
   {
-    unixaf_pcap_write_packet(&afif->pcap, len, buf);
+    unixaf_pcap_write_packet(&g_unixaf.pcap, readlen, buf);
   }
 
-
-  /* We allocate a pbuf chain of pbufs from the pool. */
-  p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-  if (p != NULL) {
-    pbuf_take(p, buf, len);
-    /* acknowledge that packet has been read(); */
-  } else {
-    /* drop packet(); */
-    MIB2_STATS_NETIF_INC(netif, ifindiscards);
-    LWIP_DEBUGF(NETIF_DEBUG, ("unixafif_input: could not allocate pbuf\n"));
-  }
-
-  return p;
+  return readlen;
 }
+
 
 /*-----------------------------------------------------------------------------------*/
 /*
@@ -331,14 +330,35 @@ low_level_input(struct netif *netif) {
  */
 /*-----------------------------------------------------------------------------------*/
 static void
-unixafif_input(struct netif *netif) {
-  struct pbuf *p = low_level_input(netif);
+unixafif_input(struct netif *main_intf)
+{
+  char buf[1518]; /* max packet size including VLAN excluding CRC */
 
-  if (p == NULL) {
-#if LINK_STATS
-    LINK_STATS_INC(link.recv);
-#endif /* LINK_STATS */
-    LWIP_DEBUGF(AFUNIX_DEBUG, ("unixafif_input: low_level_input returned NULL\n"));
+  ssize_t len = read_from_afunix_socket(g_unixaf.fd, buf, sizeof(buf));
+  if (len < 0)
+  {
+    snprintf(buf, sizeof(buf), "Could not read from UNIX AF: %s", strerror(len));
+    perror(buf);
+    return;
+  }
+
+  struct pbuf *p;
+  MIB2_STATS_NETIF_ADD(main_intf, ifinoctets, len);
+
+  // lwip seem to internally pick  the right interface, so we send all to the
+  // main interface only
+  //for (struct netif *netif = netif_list; (netif) != NULL; (netif) = (netif)->next) {
+
+  struct netif *netif = main_intf;
+  /* We allocate a pbuf chain of pbufs from the pool. */
+  p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
+  if (p != NULL) {
+    pbuf_take(p, buf, len);
+    /* acknowledge that packet has been read(); */
+  } else {
+    /* drop packet(); */
+    MIB2_STATS_NETIF_INC(netif, ifindiscards);
+    LWIP_DEBUGF(NETIF_DEBUG, ("unixafif_input: could not allocate pbuf\n"));
     return;
   }
 
@@ -346,6 +366,7 @@ unixafif_input(struct netif *netif) {
     LWIP_DEBUGF(NETIF_DEBUG, ("unixafif_input: netif input error\n"));
     pbuf_free(p);
   }
+  //}
 }
 /*-----------------------------------------------------------------------------------*/
 /*
@@ -359,13 +380,14 @@ unixafif_input(struct netif *netif) {
 /*-----------------------------------------------------------------------------------*/
 err_t
 unixafif_init(struct netif *netif) {
-  struct tapif *unixafif = (struct tapif *) mem_malloc(sizeof(struct unixafif));
+  /*struct tapif *unixafif = (struct tapif *) mem_malloc(sizeof(struct unixafif));
 
   if (unixafif == NULL) {
     LWIP_DEBUGF(NETIF_DEBUG, ("unixafif_init: out of memory for unixafif\n"));
     return ERR_MEM;
-  }
-  netif->state = unixafif;
+    netif->state = unixafif;
+  }*/
+
   MIB2_INIT_NETIF(netif, snmp_ifType_other, 100000000);
 
   netif->name[0] = IFNAME0;
@@ -378,36 +400,38 @@ unixafif_init(struct netif *netif) {
 
   low_level_init(netif);
 
-  bool tap = netif->flags & NETIF_FLAG_ETHARP;
-
-  struct unixafif *uafif = (struct unixafif *) netif->state;
-  unixaf_pcap_init(&uafif->pcap, tap);
 
   return ERR_OK;
 }
 
+void
+unixaif_global_init(struct netif *main_netif)
+{
+  bool tap = main_netif->flags & NETIF_FLAG_ETHARP;
+  set_tun_fd();
+  unixaf_pcap_init(&g_unixaf.pcap, tap);
+}
+
 /*-----------------------------------------------------------------------------------*/
 void
-unixafif_poll(struct netif *netif) {
-  unixafif_input(netif);
+unixafif_poll(struct netif *main_netif) {
+  unixafif_input(main_netif);
 }
 
 static void
 unixafif_thread(void *arg) {
   struct netif *netif;
-  struct unixafif *unixif;
   fd_set fdset;
   int ret;
 
   netif = (struct netif *) arg;
-  unixif = (struct unixafif *) netif->state;
 
   while (true) {
     FD_ZERO(&fdset);
-    FD_SET(unixif->fd, &fdset);
+    FD_SET(g_unixaf.fd, &fdset);
 
     /* Wait for a packet to arrive. */
-    ret = select(unixif->fd + 1, &fdset, NULL, NULL, NULL);
+    ret = select(g_unixaf.fd + 1, &fdset, NULL, NULL, NULL);
 
     if (ret == 1) {
       /* Handle incoming packet. */

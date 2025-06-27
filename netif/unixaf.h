@@ -42,7 +42,14 @@ extern "C" {
 #endif
 
 err_t unixafif_init(struct netif *netif);
-void unixafif_poll(struct netif *netif);
+
+/** Initialises the global state that is common to all interfaces.
+ * Currently this is pcap and the fd for the communication with OpenVPN.
+ * It will use main_netif parameter to determine parameter that should
+ * be common for all interace like layer 2 or layer 3 */
+void unixaif_global_init(struct netif *main_netif);
+
+void unixafif_poll(struct netif *main_netif);
 /**
  * Return whether we consider a netif a tap (layer 2) interface. Otherwise it
  * is considered a layer 3 tun interface
@@ -52,6 +59,11 @@ bool netif_is_tap(const struct netif *netif) {
   return netif->flags & (NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET);
 }
 
+const char *getenv_netif_idx(const char *name, struct netif *netif);
+
+const char *getenv_indexed(const char *name, uint8_t num);
+
+const char *getenv_indexed_name(char *buf, size_t buflen, const char *name, uint8_t num);
 
 
 #ifdef __cplusplus

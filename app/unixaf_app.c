@@ -38,6 +38,7 @@
 #include <time.h>
 #include <string.h>
 #include <stdbool.h>
+#include <signal.h>
 
 /* lwIP core includes */
 #include "lwip/opt.h"
@@ -146,8 +147,9 @@ status_print(struct netif *netif, const char *prefix) {
   char ip6_local[48];
 
 
-  printf("%s: type=%s mtu=%d local_ip=%s netmask=%s gw=%s local_ipv6=%s\n",
+  printf("%s: idx=%d type=%s mtu=%d local_ip=%s netmask=%s gw=%s local_ipv6=%s\n",
 	 prefix,
+	 netif->num,
 	 netif_is_tap(netif) ? "tap" : "tun",
 	 netif->mtu,
 	 status_print_ip_addr(netif_ip4_addr(netif), ip_local, sizeof(ip_local)),
@@ -188,8 +190,11 @@ link_callback(struct netif *state_netif) {
 
 /** returns the parsed IPv4 address in network order */
 static ip4_addr_t
-get_ipv4_addr_from_env(const char *env_name) {
+get_ipv4_addr_from_env(const char *name, uint8_t num) {
   ip4_addr_t addr;
+
+  char buf[512];
+  const char *env_name = getenv_indexed_name(buf, sizeof(buf), name, num);
 
   const char *ipv4_addr = getenv(env_name);
   if (!ipv4_addr) {
@@ -207,8 +212,11 @@ get_ipv4_addr_from_env(const char *env_name) {
 }
 
 static ip6_addr_t
-get_ipv6_addr_from_env(const char *env_name) {
+get_ipv6_addr_from_env(const char *name, uint8_t num) {
   ip6_addr_t addr = {0};
+
+  char buf[512];
+  const char *env_name = getenv_indexed_name(buf, sizeof(buf), name, num);
 
   const char *ipv6_addr = getenv(env_name);
   if (!ipv6_addr) {
@@ -224,21 +232,23 @@ get_ipv6_addr_from_env(const char *env_name) {
   return addr;
 }
 
+
+
 /**
  * Configure IPv4 on the network interface
  * @return 	if dhcp should be started
  */
 static bool
 set_ipv4_addr_from_env(struct netif *netif) {
-  if (getenv("ifconfig_local_dhcp")) {
+  if (getenv_netif_idx("ifconfig_local_dhcp", netif)) {
     dhcp_set_struct(netif, &netif_dhcp);
     printf("Using DHCP to configure IPv4");
     return true;
   } else {
     /* The variables match OpenVPN's variables */
-    ip4_addr_t ip_addr = get_ipv4_addr_from_env("ifconfig_local");
-    ip4_addr_t ip_netmask = get_ipv4_addr_from_env("ifconfig_netmask");
-    ip4_addr_t ip_remote = get_ipv4_addr_from_env("ifconfig_gateway");
+    ip4_addr_t ip_addr = get_ipv4_addr_from_env("ifconfig_local", netif->num);
+    ip4_addr_t ip_netmask = get_ipv4_addr_from_env("ifconfig_netmask", netif->num);
+    ip4_addr_t ip_remote = get_ipv4_addr_from_env("ifconfig_gateway", netif->num);
 
     netif_set_addr(netif, &ip_addr, &ip_netmask, &ip_remote);
     return false;
@@ -250,9 +260,9 @@ set_ipv6_addr_from_env(struct netif *netif) {
   int netbits = 64;
 
   /* The variables match OpenVPN's variables */
-  ip6_addr_t ip_addr = get_ipv6_addr_from_env("ifconfig_ipv6_local");
+  ip6_addr_t ip_addr = get_ipv6_addr_from_env("ifconfig_ipv6_local", netif->num);
 
-  char *ipv6_netbits = getenv("ifconfig_ipv6_netbits");
+  const char *ipv6_netbits = getenv_netif_idx("ifconfig_ipv6_netbits", netif);
   if (ipv6_netbits) {
     netbits = atoi(ipv6_netbits);
   }
@@ -274,37 +284,66 @@ set_ipv6_addr_from_env(struct netif *netif) {
   netif_ip6_addr_set_state(netif, 0, IP6_ADDR_PREFERRED);
 }
 
-/* global variable holding the netif configuration */
-struct netif netif = {0};
-
 static void
-init_unixaf_netif(void) {
-  netif_add(&netif, NULL, NULL, NULL, NULL, unixafif_init, tcpip_input);
-  netif_set_default(&netif);
-}
-
-/* This function initializes all network interfaces */
-static void
-afunix_netif_init(void) {
-  bool startdhcp;
-
-  init_unixaf_netif();
+afunix_netif_init_config(struct netif *netif)
+{
+  netif_add(netif, NULL, NULL, NULL, NULL, unixafif_init, tcpip_input);
 
   /* set status callbacks */
-  netif_set_status_callback(netif_default, status_callback);
-  netif_set_link_callback(netif_default, link_callback);
+  netif_set_status_callback(netif, status_callback);
+  netif_set_link_callback(netif, link_callback);
 
   /* set address families from OpenVPN environment variables */
-  startdhcp = set_ipv4_addr_from_env(netif_default);
-  set_ipv6_addr_from_env(netif_default);
+  bool startdhcp = set_ipv4_addr_from_env(netif);
+  set_ipv6_addr_from_env(netif);
 
-  netif_set_up(netif_default);
+  netif_set_up(netif);
 
   if (startdhcp) {
-    err_t err = dhcp_start(netif_default);
+    err_t err = dhcp_start(netif);
     LWIP_ASSERT("dhcp_start failed", err == ERR_OK);
   }
 }
+
+/* global variable holding the netif configuration */
+struct netif main_netif = {0};
+
+
+struct netif_ll **netif_additional;
+
+static void
+afunix_extra_netif_init(void)
+{
+  // Check for all interfaces between 1 and 254 if the UV
+  // variables are available for IPv4 and IPv6 and then 
+  // assume the interface is to be configured based on that.
+  for (int i=2; i< 254; i++)
+  {
+    if (!getenv_indexed("ifconfig_ipv6_local", i) && !getenv_indexed("ifconfig_local", i))
+    {
+      /* neither ipv4 nor ipv6 env found. Assume there are no further interfaces */
+      break;
+    }
+
+    /* This leaks memory if not freed later. We will rely on the
+     * main_netif->next linked list to find all extra netif */
+    struct netif *extra_if = (struct netif *) malloc(sizeof(struct netif));
+    afunix_netif_init_config(extra_if);
+  }
+}
+
+
+/* This function initializes all network interfaces */
+static void
+afunix_netif_init_main(void) {
+
+  afunix_netif_init_config(&main_netif);
+  netif_set_default(&main_netif);
+
+}
+
+
+
 
 #if LWIP_DNS_APP && LWIP_DNS
 static void
@@ -441,14 +480,29 @@ unixaf_app_init(void *arg) { /* remove compiler warning */
   /* init randomizer again (seed per thread) */
   srand((unsigned int) time(NULL));
 
-  /* init network interfaces */
-  afunix_netif_init();
+
+  /* init default network interface */
+  printf("init main start\n");
+
+  afunix_netif_init_main();
+  printf("init main finished\n");
+
+/* init pcap and unix fd */
+  unixaif_global_init(&main_netif);
+  printf("init global finished\n");
+
+  /* init extra network interfaces */
+  afunix_extra_netif_init();
+  printf("init extra finished\n");
+
 
   /* init apps */
   apps_init();
 
   /* print status interface */
-  status_print(netif_default, "lwipovpn init complete");
+  for (struct netif *netif = netif_list; (netif) != NULL; (netif) = (netif)->next) {
+    status_print(netif, "lwipovpn");
+  }
 
 #if !NO_SYS
   sys_sem_signal(init_sem);
@@ -461,6 +515,8 @@ unixaf_app_init(void *arg) { /* remove compiler warning */
  * interrupt in windows for that :-) */
 static void
 main_loop(void) {
+  printf(" main loop start\r\n");
+
   err_t err;
   sys_sem_t init_sem;
 
@@ -502,9 +558,26 @@ main_loop(void) {
 #endif
 }
 
+static void wait_for_debugger_attach( void ) {
+  fprintf( stderr, "lwipovpn: pid=%d: waiting for debugger to attach...\n" , (int)getpid()
+  );
+  if ( raise( SIGSTOP ) == -1 ) {
+    perror( "SIGSTOP failed?" );
+    exit( 103 );
+  }
+}
+
 int main(void) {
   /* no stdio-buffering, please! */
   setvbuf(stdout, NULL, _IONBF, 0);
+
+  if (getenv("LWIPOVPN_WAIT_FOR_DEBUGGER") != NULL) {
+    wait_for_debugger_attach();
+  }
+
+  //execl ("/usr/bin/env", NULL);
+
+  printf(" main start\n");
 
   main_loop();
 
