@@ -482,19 +482,13 @@ unixaf_app_init(void *arg) { /* remove compiler warning */
 
 
   /* init default network interface */
-  printf("init main start\n");
-
   afunix_netif_init_main();
-  printf("init main finished\n");
 
-/* init pcap and unix fd */
+  /* init pcap and unix fd */
   unixaif_global_init(&main_netif);
-  printf("init global finished\n");
 
   /* init extra network interfaces */
   afunix_extra_netif_init();
-  printf("init extra finished\n");
-
 
   /* init apps */
   apps_init();
@@ -515,8 +509,6 @@ unixaf_app_init(void *arg) { /* remove compiler warning */
  * interrupt in windows for that :-) */
 static void
 main_loop(void) {
-  printf(" main loop start\r\n");
-
   err_t err;
   sys_sem_t init_sem;
 
@@ -574,10 +566,6 @@ int main(void) {
   if (getenv("LWIPOVPN_WAIT_FOR_DEBUGGER") != NULL) {
     wait_for_debugger_attach();
   }
-
-  //execl ("/usr/bin/env", NULL);
-
-  printf(" main start\n");
 
   main_loop();
 
